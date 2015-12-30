@@ -20,9 +20,11 @@ import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
+import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.log4j.Logger;
 
 import accumulo.LoadToAccumulo;
@@ -31,7 +33,7 @@ import yahoofinance.YahooFinance;
 import yahoofinance.histquotes.HistoricalQuote;
 import yahoofinance.histquotes.Interval;
 
-public class YahooGetDailStockQuotesMapper extends Mapper<LongWritable, Text, Text, Mutation> {
+public class NasdaqYahooGetDailStockQuotesReducer extends Reducer<IntWritable, Text, Text, Mutation> {
 
 	/* Initialize the calendars */
 	private static final Calendar to = Calendar.getInstance();
@@ -48,53 +50,52 @@ public class YahooGetDailStockQuotesMapper extends Mapper<LongWritable, Text, Te
 	private static final Instance inst = new ZooKeeperInstance("default", "localhost:2181");			
 	private static Connector accumuloConnector;
 	
-	private static final Logger logger = Logger.getLogger(YahooGetDailStockQuotesMapper.class);
+	private static final Logger logger = Logger.getLogger(NasdaqYahooGetDailStockQuotesReducer.class);
 	
 	private Scanner scanner;
+	
 	@Override
-	protected void map(LongWritable key, Text value, Mapper<LongWritable, Text, Text, Mutation>.Context context)
-			throws IOException, InterruptedException {
+	protected void reduce(IntWritable key, Iterable<Text> values,
+			Reducer<IntWritable, Text, Text, Mutation>.Context context) throws IOException, InterruptedException {
 		
-		String symbol = value.toString().split("\\|")[0];
-		if(symbol.contains("Symbol") || symbol.contains("File Creation"))
-			return;
-		
-		Calendar from;
-		if(symbolExists(symbol))
-			from = fromOneMonth;
-		else
-			from = fromTwentyYears;
-
-		Stock stock = null;
-		try {
-			stock = YahooFinance.get(symbol, from, to, Interval.DAILY);
-		}
-		catch(IOException ex) {
-			logger.error(String.format("%s: Unable to get quotes for dates [%2$tY-%2$tm-%2$td] - [%3$tY-%3$tm-%3$td]",
-					symbol, from, to));
-			return;
-		}
-		List<HistoricalQuote> history = stock.getHistory();
-		
-		for(HistoricalQuote hq: history) {
-			long dateAsLong = hq.getDate().getTimeInMillis();
-			String dateAsLongString  = Long.toString(dateAsLong);
+		for(Text val : values) {
+			String symbol = val.toString();
+			Calendar from;
+			if(symbolExists(symbol))
+				from = fromOneMonth;
+			else
+				from = fromTwentyYears;
+	
+			Stock stock = null;
+			try {
+				stock = YahooFinance.get(symbol, from, to, Interval.DAILY);
+			}
+			catch(IOException ex) {
+				logger.error(String.format("%s: Unable to get quotes for dates [%2$tY-%2$tm-%2$td] - [%3$tY-%3$tm-%3$td]",
+						symbol, from, to));
+				return;
+			}
+			List<HistoricalQuote> history = stock.getHistory();
 			
-			Mutation m = new Mutation(symbol);
-			m.put(dateAsLongString, "Volume", Long.toString(hq.getVolume()));
-			m.put(dateAsLongString, "Close", hq.getClose().toString());
-			m.put(dateAsLongString, "Adjusted", hq.getAdjClose().toString());
-			m.put(dateAsLongString, "Open", hq.getOpen().toString());
-			m.put(dateAsLongString, "High", hq.getHigh().toString());
-			m.put(dateAsLongString, "Low", hq.getLow().toString());
-			m.put(dateAsLongString, "DateAsText", sdf.format(new Date(dateAsLong)));
-			context.write(TABLE_NAME, m);
+			for(HistoricalQuote hq: history) {
+				long dateAsLong = hq.getDate().getTimeInMillis();
+				String dateAsLongString  = Long.toString(dateAsLong);
+				
+				Mutation m = new Mutation(symbol);
+				m.put(dateAsLongString, "Volume", Long.toString(hq.getVolume()));
+				m.put(dateAsLongString, "Close", hq.getClose().toString());
+				m.put(dateAsLongString, "Adjusted", hq.getAdjClose().toString());
+				m.put(dateAsLongString, "Open", hq.getOpen().toString());
+				m.put(dateAsLongString, "High", hq.getHigh().toString());
+				m.put(dateAsLongString, "Low", hq.getLow().toString());
+				m.put(dateAsLongString, "DateAsText", sdf.format(new Date(dateAsLong)));
+				context.write(TABLE_NAME, m);
+			}
 		}
-		
 	}
 	
 	@Override
-	protected void setup(Mapper<LongWritable, Text, Text, Mutation>.Context context)
+	protected void setup(Reducer<IntWritable, Text, Text, Mutation>.Context context)
 			throws IOException, InterruptedException {
 		// TODO Auto-generated method stub
 		super.setup(context);
@@ -106,7 +107,6 @@ public class YahooGetDailStockQuotesMapper extends Mapper<LongWritable, Text, Te
 		}
 	}
 	
-
 	private boolean symbolExists(String symbol) {
 		if(scanner == null) {
 			try {

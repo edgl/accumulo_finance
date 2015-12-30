@@ -19,7 +19,6 @@ import org.apache.hadoop.mapreduce.lib.input.NLineInputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 import org.apache.log4j.Logger;
-import org.apache.log4j.spi.LoggerFactory;
 
 import com.beust.jcommander.Parameter;
 import com.google.common.base.Strings;
